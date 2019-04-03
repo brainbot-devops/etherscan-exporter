@@ -11,28 +11,78 @@ from prometheus_client.core import GaugeMetricFamily
 
 parser = argparse.ArgumentParser()
 parser.add_argument('apikey', help='Etherscan.io API Key.')
-parser.add_argument('--target-network', nargs=1, help='The network to request data for.', default=None)
 parser.add_argument('--collect-ether-supply', action='store_true', default=False, help='Collect the current ether supply from etherscan.')
 parser.add_argument('--collect-gas-price', action='store_true', default=False, help='Collect the gas price from etherscan.')
 parser.add_argument('--collect-latest-block', action='store_true', default=False, help='Collect the latest block from etherscan.')
-parser.add_argument('--collect-account-balances', nargs='*', default=False, help='Collect account balances as a metric. Accounts must be supplied with this option. Maximum of 20.')
 parser.add_argument('--collect-last-eth-price', action='store_true', default=False, help='Collect the last ether price from etherscan.')
 parser.add_argument('--collect-chainsize', action='store_true', default=False, help='Collect the chainsize for the past 24h from etherscan.')
+parser.add_argument('--collect-kovan-balance', nargs=1, help='The address to collect the balance for on the kovan test net.', default=(None,))
+parser.add_argument('--collect-rinkeby-balance', nargs=1, help='The address to collect the balance for on the rinkeby test net.', default=(None,))
+parser.add_argument('--collect-ropsten-balance', nargs=1, help='The address to collect the balance for on the ropsten test net.', default=(None,))
+parser.add_argument('--collect-goerli-balance', nargs=1, help='The address to collect the balance for on the goerli test net.', default=(None,))
+parser.add_argument('--collect-mainnet-balance', nargs=1, help='The address to collect the balance for on the main net.', default=(None,))
 args = parser.parse_args()
 
+address_by_network = {
+    'mainnet': args.collect_mainnet_balance[0],
+    'kovan': args.collect_kovan_balance[0],
+    'rinkeby': args.collect_rinkeby_balance[0],
+    'ropsten': args.collect_ropsten_balance[0],
+    'goerli': args.collect_goerli_balance[0],
+}
 
 class EtherScanCollector:
     def __init__(self):
-        self.api = EtherscanAPI(args.apikey, network=args.target_network)
+        self.api = EtherscanAPI(args.apikey)
 
     def collect(self):
-        metrics = {}
+        metrics = {
+            'etherscan_chainsize_last_block_bytes': GaugeMetricFamily(
+                'etherscan_chainsize_last_block_bytes',
+                'The bytes size of the chain after the last block from the past 24h, according to etherscan.io.',
+                labels=['network', 'client', 'block_num'],
+            ),
+            'etherscan_latest_block': GaugeMetricFamily(
+                'etherscan_latest_block',
+                'The number of the latest block according to etherscan.io.',
+                labels=['network']
+            ),
+            'etherscan_account_balance_eth': GaugeMetricFamily(
+                'etherscan_account_balance',
+                'The balance of the account related to the given address, according to etherscan.io.',
+                labels=['network', 'address'],
+            ),
+            'etherscan_ether_supply_wei': GaugeMetricFamily(
+                'etherscan_ether_supply',
+                'The total eth supply according to etherscan.io.',
+                labels=['network']
+            ),
+            'etherscan_last_eth_price': GaugeMetricFamily(
+                'etherscan_last_eth_price',
+                'The last eth price according to etherscan.io.',
+                labels=['network', 'pair']
+            ),
+            'etherscan_gas_price_wei': GaugeMetricFamily(
+                'etherscan_gas_price_wei',
+                'The current gas price according to etherscan.io.',
+                labels=['network', 'pair']
+            ),
+        }
+
+        for network in ('mainnet', 'kovan', 'rinkeby', 'ropsten', 'goerli'):
+            self._collect(metrics, network)
+            time.sleep(1)
+
+        for value in metrics.values():
+            yield value
+
+    def _collect(self, metrics, network):
+        self.api.configure_for(network)
 
         number_of_expected_requests = sum([int(bool(value)) for value in vars(args).values()])
 
-        if args.collect_account_balances:
-            accounts = args.collect_account_balances
-            self.collect_balance_for(*accounts, metrics=metrics)
+        if address_by_network.get(network):
+            self.collect_balance_for(address_by_network[network], metrics=metrics)
 
         if args.collect_ether_supply:
             self.collect_ether_supply(metrics)
@@ -51,83 +101,58 @@ class EtherScanCollector:
             time.sleep(1)
 
         if args.collect_chainsize:
-            metrics['etherscan_chainsize_last_block_bytes'] = GaugeMetricFamily(
-                'etherscan_chainsize_last_block_bytes',
-                'The bytes size of the chain after the last block from the past 24h, according to etherscan.io.',
-                labels=['client', 'block_num']
-            )
+
             self.collect_chainsize_24h('parity', metrics)
             self.collect_chainsize_24h('geth', metrics)
 
-        for metric in metrics.values():
-            yield metric
+        return metrics
 
     def collect_latest_block_number(self, metrics):
         resp = int(self.api.proxy.latest_block, 16)
-        metrics['etherscan_latest_block'] = GaugeMetricFamily(
-            'etherscan_latest_block',
-            'The number of the latest block according to etherscan.io.',
-            value=resp
-        )
+        metrics['etherscan_latest_block'].add_metric([self.api.network], resp)
         return metrics
 
     def collect_gas_price(self, metrics):
         resp = int(self.api.proxy.gas_price, 16)
-        metrics['etherscan_gas_price_wei'] = GaugeMetricFamily(
-            'etherscan_gas_price',
-            'The current gas price according to etherscan.io.',
-            value=resp
-        )
+        metrics['etherscan_gas_price_wei'].add_metric([self.api.network], resp)
         return metrics
 
     def collect_balance_for(self, *addresses, metrics):
-        metrics['etherscan_account_balance_eth'] = GaugeMetricFamily(
-            'etherscan_account_balance',
-            'The balance of the account related to the given address, according to etherscan.io.',
-            labels=['address'],
-        )
+
         balances = self.api.account.address_balances(*addresses)
         for address, balance in balances.items():
-            metrics['etherscan_account_balance_eth'].add_metric([address], balance)
+            metrics['etherscan_account_balance_eth'].add_metric([self.api.network, address], balance)
         return metrics
 
     def collect_ether_supply(self, metrics):
         resp = self.api.stats.total_eth_supply
-        metrics['etherscan_ether_supply_wei'] = GaugeMetricFamily(
-            'etherscan_ether_supply',
-            'The total eth supply according to etherscan.io.',
-            value=resp
-        )
+        metrics['etherscan_ether_supply_wei'].add_metric([self.api.network], resp)
         return metrics
 
     def collect_last_eth_price(self, metrics):
         resp = self.api.stats.last_price
-        metrics['etherscan_last_eth_price'] = GaugeMetricFamily(
-            'etherscan_last_eth_price',
-            'The last eth price according to etherscan.io.',
-            labels=['pair']
-        )
-        metrics['etherscan_last_eth_price'].add_metric(['ethbtc'], resp['ethbtc'])
-        metrics['etherscan_last_eth_price'].add_metric(['ethusd'], resp['ethusd'])
+
+        metrics['etherscan_last_eth_price'].add_metric([self.api.network, 'ethbtc'], resp['ethbtc'])
+        metrics['etherscan_last_eth_price'].add_metric([self.api.network, 'ethusd'], resp['ethusd'])
         return metrics
 
     def collect_chainsize_24h(self, client, metrics):
         today = time.strftime('%Y-%m-%d')
         yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
         yesterday = yesterday.strftime('%Y-%m-%d')
-        print(yesterday, today)
-        data = self.api.stats.node_size_for(client, sync_mode='default', start_date=yesterday, end_date=today)
-        print('data', data)
+        try:
+            data = self.api.stats.node_size_for(client, sync_mode='default', start_date=yesterday, end_date=today)
+        except ValueError:
+            return metrics
         try:
             latest_block = data[0]
         except IndexError:
             return metrics
 
         if latest_block:
-            print(latest_block)
             block_num = latest_block['blockNumber']
             chain_size = latest_block['chainSize']
-            metrics['etherscan_chainsize_last_block_bytes'].add_metric([client, str(block_num)], chain_size)
+            metrics['etherscan_chainsize_last_block_bytes'].add_metric([self.api.network, client, str(block_num)], chain_size)
 
         return metrics
 

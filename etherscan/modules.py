@@ -15,8 +15,10 @@ class Module(abc.ABC):
 
     @classmethod
     def configure_for(cls, network):
-        if network != 'mainnet':
-            cls.ADDRESS = f'http://api.{network}.etherscan.io'
+        if network is not None and network != 'mainnet':
+            cls.ADDRESS = f'http://api-{network}.etherscan.io'
+        else:
+            cls.ADDRESS = 'http://api.etherscan.io'
 
     @abc.abstractmethod
     def _query(self, action, **kwargs):
@@ -88,7 +90,7 @@ class Account(Module):
 
         resp = self._query(action, address or addresses, **options)
         if isinstance(resp, str):
-            return {addresses: resp}
+            return {address: resp}
 
     def transactions_by_address(self, address, **options):
         return self._query('txlist', address, **options)
