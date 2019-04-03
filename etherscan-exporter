@@ -11,6 +11,7 @@ from prometheus_client.core import GaugeMetricFamily
 
 parser = argparse.ArgumentParser()
 parser.add_argument('apikey', help='Etherscan.io API Key.')
+parser.add_argument('--target-network', nargs=1, help='The network to request data for.', default=None)
 parser.add_argument('--collect-ether-supply', action='store_true', default=False, help='Collect the current ether supply from etherscan.')
 parser.add_argument('--collect-gas-price', action='store_true', default=False, help='Collect the gas price from etherscan.')
 parser.add_argument('--collect-latest-block', action='store_true', default=False, help='Collect the latest block from etherscan.')
@@ -22,7 +23,7 @@ args = parser.parse_args()
 
 class EtherScanCollector:
     def __init__(self):
-        self.api = EtherscanAPI(args.apikey)
+        self.api = EtherscanAPI(args.apikey, network=args.target_network)
 
     def collect(self):
         metrics = {}
