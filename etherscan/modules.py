@@ -5,6 +5,7 @@ import requests
 
 class Module(abc.ABC):
     ADDRESS = 'http://api.etherscan.io'
+
     def __init__(self, name, session, apikey=None):
         self.name = name
         self.session = session
