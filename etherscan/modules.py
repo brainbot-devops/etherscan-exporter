@@ -4,6 +4,7 @@ import requests
 
 
 class Module(abc.ABC):
+    ADDRESS = 'http://api.etherscan.io'
     def __init__(self, name, session, apikey=None):
         self.name = name
         self.session = session
@@ -11,10 +12,15 @@ class Module(abc.ABC):
             self.session = requests.Session()
             self.session.params = {'apikey': apikey}
 
+    @classmethod
+    def configure_for(cls, network):
+        if network != 'mainnet':
+            cls.ADDRESS = f'http://api.{network}.etherscan.io'
+
     @abc.abstractmethod
     def _query(self, action, **kwargs):
         params = dict(action=action, module=self.name, **kwargs)
-        resp = self.session.get('http://api.etherscan.io/api', params=params)
+        resp = self.session.get(f'{self.ADDRESS}/api', params=params)
         json_resp = resp.json()
         if 'error' in json_resp:
             raise ValueError(json_resp['error'])
