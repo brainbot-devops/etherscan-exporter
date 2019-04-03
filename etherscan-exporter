@@ -126,7 +126,7 @@ class EtherScanCollector:
             print(latest_block)
             block_num = latest_block['blockNumber']
             chain_size = latest_block['chainSize']
-            metrics['etherscan_chainsize_24h_bytes'].add_metric([client, str(block_num)], chain_size)
+            metrics['etherscan_chainsize_last_block_bytes'].add_metric([client, str(block_num)], chain_size)
 
         return metrics
 
